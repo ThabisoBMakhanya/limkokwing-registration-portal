@@ -1,4 +1,6 @@
-﻿# Limkokwing Eswatini Registration Portal
+# Limkokwing Eswatini Registration 
+https://limkokwing-registration.vercel.app
+
 
 A responsive admissions and semester registration portal for Limkokwing University of Creative Technology, Eswatini. The application combines a public programme catalogue, student self-service, staff administration, document handling, and a role-aware help assistant.
 

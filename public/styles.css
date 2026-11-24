@@ -25,11 +25,8 @@ html { scroll-behavior: smooth; }
 body { margin: 0; color: var(--black); background: var(--surface); font: 16px/1.55 var(--font); }
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
-a:not(.btn):not(.nav-brand) { color: var(--black); text-decoration: underline; text-decoration-color: #777; text-decoration-thickness: 1px; text-underline-offset: .2em; }
-a:visited { color: var(--black); }
-a:hover { color: #000; text-decoration-color: #000; text-decoration-thickness: 2px; }
-a:active { color: #333; }
-a:focus-visible { border-radius: 2px; outline: 2px solid #555; outline-offset: 3px; }
+a { color: var(--black); text-decoration: underline; text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
 img { max-width: 100%; }
 h1, h2, h3, h4 { line-height: 1.25; margin: 0 0 .55em; }
 h1 { font-size: clamp(1.8rem, 3vw, 2.5rem); letter-spacing: -.025em; }
@@ -268,8 +265,7 @@ td .actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .footer { margin-top: 38px; padding: 32px 22px; background: var(--black); color: #ddd; }
 .footer-inner { display: flex; max-width: 1240px; flex-wrap: wrap; justify-content: space-between; gap: 24px; margin: 0 auto; }
 .footer b { display: block; margin-bottom: 7px; color: var(--white); }
-.footer a, .footer a:visited { color: var(--white); text-decoration-color: #bbb; }
-.footer a:hover { color: var(--white); text-decoration-color: var(--white); }
+.footer a { color: var(--white); }
 .empty { padding: 35px 14px; color: var(--muted); text-align: center; }
 :focus-visible { outline: 3px solid #666; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }

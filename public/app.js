@@ -154,7 +154,7 @@ function adminNavLinks() {
     links.push(navLink('/admin/registrations', 'Registrations'));
     links.push(navLink('/admin/internships', 'Internships'));
   }
-  if (r === 'registry_officer') {
+  if (r === 'registry_officer' || r === 'super_admin') {
     links.push(navLink('/admin/grades', 'Grades'));
     links.push(navLink('/admin/clearance', 'Clearance'));
   }
@@ -168,7 +168,7 @@ function adminNavLinks() {
   if (r === 'registrar' || r === 'super_admin') {
     links.push(navLink('/admin/audit', 'Audit Log'));
   }
-  if (r === 'registrar') {
+  if (r === 'registrar' || r === 'super_admin') {
     links.push(navLink('/admin/overrides', 'Overrides'));
     links.push(navLink('/admin/export', 'Export'));
   }
@@ -1155,6 +1155,20 @@ async function viewAdminDashboard() {
   const d = await api('GET', '/admin/dashboard');
   const c = d.counts;
   const card = (num, label) => `<div class="stat-card"><div><b>${num}</b><span>${label}</span></div></div>`;
+  const role = state.user.role;
+  const actions = [];
+  if (['admissions_officer', 'super_admin'].includes(role)) actions.push('<a class="btn btn-sm" href="#/admin/applications">Review applications</a>');
+  if (['registry_officer', 'super_admin'].includes(role)) {
+    actions.push('<a class="btn btn-sm btn-ghost" href="#/admin/registrations">Verify SRC receipts</a>');
+    actions.push('<a class="btn btn-sm btn-ghost" href="#/admin/grades">Enter grades</a>');
+    actions.push('<a class="btn btn-sm btn-ghost" href="#/admin/clearance">Student clearance</a>');
+  }
+  if (['registry_officer', 'registrar', 'super_admin'].includes(role)) actions.push('<a class="btn btn-sm btn-ghost" href="#/admin/students">Student records</a>');
+  if (role === 'super_admin') actions.push('<a class="btn btn-sm btn-ghost" href="#/admin/modules">Manage modules</a>');
+  if (['registrar', 'super_admin'].includes(role)) {
+    actions.push('<a class="btn btn-sm btn-ghost" href="#/admin/overrides">Manual overrides</a>');
+    actions.push('<a class="btn btn-sm btn-ghost" href="#/admin/export">Export data</a>');
+  }
   $('#portal-body').innerHTML = `
     <div class="stat-cards mb-2">
       ${card(c.pending_applications, 'Applications pending review')}
@@ -1165,13 +1179,7 @@ async function viewAdminDashboard() {
       ${card(c.total_students, 'Registered students')}
     </div>
     <div class="grid grid-2">
-      <div class="card"><h3>Quick actions</h3><div class="flex">
-        <a class="btn btn-sm" href="#/admin/applications">Review applications</a>
-        <a class="btn btn-sm btn-ghost" href="#/admin/registrations">Verify SRC receipts</a>
-        <a class="btn btn-sm btn-ghost" href="#/admin/students">Student records</a>
-        ${state.user.role === 'super_admin' ? '<a class="btn btn-sm btn-ghost" href="#/admin/modules">Manage modules</a>' : ''}
-        ${state.user.role === 'registry_officer' ? '<a class="btn btn-sm btn-ghost" href="#/admin/grades">Enter grades</a>' : ''}
-      </div></div>
+      <div class="card"><h3>Quick actions</h3><div class="flex">${actions.join('')}</div></div>
       <div class="card"><h3>Ask me</h3>
         <p class="muted small">Open the assistant (bottom-right) and ask e.g. <i>How many applications are pending?</i>, <i>How do I add a module?</i> or <i>How do I clear a student?</i>.</p></div>
     </div>`;
@@ -1200,7 +1208,7 @@ async function viewAdminApplications() {
 async function openApplication(id) {
   const d = await api('GET', `/admin/applications/${id}`);
   const a = d.application, req = d.requirement;
-  const canDecide = state.user.role === 'admissions_officer';
+  const canDecide = ['admissions_officer', 'super_admin'].includes(state.user.role);
   const canVerifyCertificate = ['admissions_officer', 'super_admin'].includes(state.user.role);
   const pd = a.personal_details, cd = a.contact_details;
   const docs = a.documents || {};
@@ -1309,7 +1317,7 @@ async function viewAdminStudents() {
     <td>${esc(s.certificate_name || '')}</td>
     <td>${s.current_semester}</td>
     <td>${statusBadge(s.status)}</td>
-    <td><div class="actions"><button class="btn btn-sm btn-ghost" data-rec="${s.user_id}">Record</button></div></td></tr>`).join('');
+    <td><div class="actions">${state.user.role === 'admissions_officer' ? '' : `<button class="btn btn-sm btn-ghost" data-rec="${s.user_id}">Record</button>`}</div></td></tr>`).join('');
   $('#portal-body').innerHTML = `
     <div class="table-wrap"><table><thead><tr><th>Student #</th><th>Name</th><th>Programme</th>
       <th>Certificate</th><th>Sem</th><th>Status</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="muted">None yet</td></tr>'}</tbody></table></div>`;
@@ -1422,10 +1430,10 @@ async function viewAdminRegistrations() {
     <td>${statusBadge(r.status)}${r.rejection_reason ? `<div class="hint">${esc(r.rejection_reason)}</div>` : ''}</td>
     <td><div class="actions">
       <button class="btn btn-sm btn-outline" type="button" data-view-reg="${r.id}">View details</button>
-      ${r.src_receipt && r.src_receipt.verification_status === 'pending' ? `
+      ${['registry_officer', 'super_admin'].includes(state.user.role) && r.src_receipt && r.src_receipt.verification_status === 'pending' ? `
         <button class="btn btn-sm btn-outline" type="button" data-src="${r.id}" data-act="approved">Approve SRC</button>
         <button class="btn btn-sm btn-outline" type="button" data-src="${r.id}" data-act="rejected">Reject SRC</button>` : ''}
-      ${r.status === 'submitted' && r.src_receipt?.verification_status === 'approved' ? `
+      ${['registry_officer', 'super_admin'].includes(state.user.role) && r.status === 'submitted' && r.src_receipt?.verification_status === 'approved' ? `
         <button class="btn btn-sm btn-blue" data-app="${r.id}">Approve</button>
         <button class="btn btn-sm btn-red" data-rej="${r.id}">Reject</button>` : ''}
     </div></td></tr>`).join('');
@@ -1489,11 +1497,10 @@ async function viewAdminInternships() {
     <td>${i.placement_document_url ? secureFileLink(i.placement_document_url, 'download documents') : ''}</td>
     <td>${statusBadge(i.status)}</td>
     <td>${esc(i.final_grade || '')}</td>
-    <td><div class="actions">
+    <td><div class="actions">${['registry_officer', 'super_admin'].includes(state.user.role) ? `
       <button class="btn btn-sm btn-green" data-int="${i.id}" data-act="approved">Approve</button>
       <button class="btn btn-sm btn-blue" data-grade="${i.id}">Log grade</button>
-      <button class="btn btn-sm btn-red" data-int="${i.id}" data-act="rejected">Reject</button>
-    </div></td></tr>`).join('');
+      <button class="btn btn-sm btn-red" data-int="${i.id}" data-act="rejected">Reject</button>` : 'View only'}</div></td></tr>`).join('');
   $('#portal-body').innerHTML = `
     <div class="table-wrap"><table><thead><tr><th>ID</th><th>Student</th><th>Placement</th><th>Docs</th>
       <th>Status</th><th>Final grade</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="muted">No placements</td></tr>'}</tbody></table></div>`;
@@ -1694,8 +1701,9 @@ async function viewAdminModules() {
         : `<button class="btn btn-sm btn-green" data-rest="${m.id}">Restore</button>`}
     </div></td></tr>`).join('');
 
-  const prereqOptions = allModules.filter(m => m.is_active)
-    .map(m => `<option value="${m.id}">${esc(m.code)} - ${esc(m.title)}</option>`).join('');
+  const prereqOptions = (programmeId, excludeId = null, selectedIds = []) => allModules
+    .filter(m => m.is_active && Number(m.programme_id) === Number(programmeId) && m.id !== Number(excludeId))
+    .map(m => `<option value="${m.id}" ${selectedIds.includes(Number(m.id)) ? 'selected' : ''}>${esc(m.code)} - ${esc(m.title)}</option>`).join('');
 
   $('#portal-body').innerHTML = `
     <div class="card mb-2"><h3>Add module <span class="badge gold">admin enters ID + name</span></h3>
@@ -1709,7 +1717,7 @@ async function viewAdminModules() {
         <div class="field"><label>Classification</label><select name="classification">
           <option value="core">Core</option><option value="minor">Minor</option><option value="elective">Elective</option></select></div>
         <div class="field full"><label>Prerequisites (multi-select)</label>
-          <select name="prerequisites" multiple size="4">${prereqOptions}</select></div>
+          <select name="prerequisites" multiple size="4">${prereqOptions(progs.programmes[0]?.id)}</select></div>
         <div class="field"><button class="btn btn-gold" type="submit">Create module</button></div>
       </form></div>
     <div class="table-wrap"><table><thead><tr><th>ID</th><th>Code</th><th>Name</th><th>Programme</th><th>Sem</th>
@@ -1727,6 +1735,9 @@ async function viewAdminModules() {
       });
       toast(r.message, 'ok'); viewAdminModules();
     } catch (err) { toast(err.message, 'err'); }
+  };
+  $('#mod-form [name="programme_id"]').onchange = e => {
+    $('#mod-form [name="prerequisites"]').innerHTML = prereqOptions(e.target.value);
   };
   document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
     if (!confirm('Soft-delete this module? History is preserved.')) return;
@@ -1746,23 +1757,34 @@ async function viewAdminModules() {
       <form id="m-form" class="form-grid">
         <div class="field"><label>Module ID</label><input name="code" value="${esc(m.code)}"></div>
         <div class="field"><label>Module name</label><input name="title" value="${esc(m.title)}"></div>
-        <div class="field"><label>Semester</label><input name="semester_number" type="number" value="${m.semester_number}"></div>
+        <div class="field"><label>Programme assignment</label><select name="programme_id">
+          ${progs.programmes.map(p => `<option value="${p.id}" ${Number(m.programme_id) === Number(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+        <div class="field"><label>Scheduled semester</label><input name="semester_number" type="number" min="1" max="${progs.programmes.find(p => Number(p.id) === Number(m.programme_id))?.total_semesters || ''}" value="${m.semester_number}"></div>
         <div class="field"><label>Credits</label><input name="credits" type="number" value="${m.credits}"></div>
         <div class="field"><label>Classification</label><select name="classification">
           ${['core', 'minor', 'elective'].map(c => `<option ${m.classification === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
         <div class="field"><label>Active</label><select name="is_active">
           <option value="1" ${m.is_active ? 'selected' : ''}>Yes</option><option value="0" ${!m.is_active ? 'selected' : ''}>No</option></select></div>
         <div class="field full"><label>Prerequisites</label>
-          <select name="prerequisites" multiple size="4">${allModules.filter(x => x.is_active && x.id !== m.id)
-            .map(x => `<option value="${x.id}" ${preIds.has(x.id) ? 'selected' : ''}>${esc(x.code)} - ${esc(x.title)}</option>`).join('')}</select></div>
+          <select name="prerequisites" multiple size="4">${prereqOptions(m.programme_id, m.id, [...preIds])}</select></div>
       </form>
       <div class="modal-actions"><button class="btn btn-ghost" type="button" data-close-modal="m-modal">Cancel</button><button class="btn btn-gold" type="button" id="m-save">Save</button></div>
     </div></div>`);
+    const editForm = $('#m-form');
+    editForm.elements.programme_id.onchange = () => {
+      const programme = progs.programmes.find(p => Number(p.id) === Number(editForm.elements.programme_id.value));
+      editForm.elements.semester_number.max = programme?.total_semesters || '';
+      if (programme && Number(editForm.elements.semester_number.value) > Number(programme.total_semesters)) {
+        editForm.elements.semester_number.value = programme.total_semesters;
+      }
+      editForm.elements.prerequisites.innerHTML = prereqOptions(editForm.elements.programme_id.value, m.id);
+    };
     $('#m-save').onclick = async () => {
       const f = new FormData($('#m-form'));
       try {
         await api('PUT', `/admin/modules/${m.id}`, {
           code: f.get('code'), title: f.get('title'), semester_number: Number(f.get('semester_number')),
+          programme_id: Number(f.get('programme_id')),
           credits: Number(f.get('credits')), classification: f.get('classification'),
           is_active: f.get('is_active') === '1', prerequisites: [...f.getAll('prerequisites').map(Number)]
         });
@@ -1825,7 +1847,7 @@ async function viewAdminUsers() {
       <form id="u-form" class="form-grid">
         <div class="field"><label>Full name</label><input name="full_name" value="${esc(u.full_name)}"></div>
         <div class="field"><label>Role</label><select name="role">
-          ${['super_admin', 'admissions_officer', 'registry_officer', 'registrar', 'student']
+          ${['super_admin', 'admissions_officer', 'registry_officer', 'registrar']
             .map(r => `<option ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}</select></div>
         <div class="field"><label>Phone</label><input name="phone" value="${esc(u.phone || '')}"></div>
         <div class="field"><label>New password</label><input type="password" name="password" placeholder="leave blank to keep"></div>
@@ -1951,8 +1973,8 @@ route('/student/profile', ['student'], viewProfile);
 route('/admin', ['super_admin', 'admissions_officer', 'registry_officer', 'registrar'], viewAdminDashboard);
 route('/admin/applications', ['super_admin', 'admissions_officer', 'registrar'], viewAdminApplications);
 route('/admin/students', ['super_admin', 'admissions_officer', 'registry_officer', 'registrar'], viewAdminStudents);
-route('/admin/grades', ['registry_officer'], viewAdminGrades);
-route('/admin/clearance', ['registry_officer'], viewAdminClearance);
+route('/admin/grades', ['registry_officer', 'super_admin'], viewAdminGrades);
+route('/admin/clearance', ['registry_officer', 'super_admin'], viewAdminClearance);
 route('/admin/registrations', ['super_admin', 'registry_officer', 'registrar'], viewAdminRegistrations);
 route('/admin/internships', ['super_admin', 'registry_officer', 'registrar'], viewAdminInternships);
 route('/admin/programmes', ['super_admin'], viewAdminProgrammes);
@@ -1961,7 +1983,7 @@ route('/admin/requirements', ['super_admin'], viewAdminRequirements);
 route('/admin/modules', ['super_admin'], viewAdminModules);
 route('/admin/users', ['super_admin'], viewAdminUsers);
 route('/admin/audit', ['super_admin', 'registrar'], viewAdminAudit);
-route('/admin/overrides', ['registrar'], viewAdminOverrides);
+route('/admin/overrides', ['registrar', 'super_admin'], viewAdminOverrides);
 route('/admin/export', ['registrar', 'super_admin'], viewAdminExport);
 route('*', null, viewHome);
 

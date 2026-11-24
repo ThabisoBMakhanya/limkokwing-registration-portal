@@ -39,13 +39,13 @@ Role checks run on protected API routes. The interface also limits navigation by
 
 | Role | Main responsibilities |
 | --- | --- |
-| Super Admin | Create staff accounts; manage programmes, certificates, admission requirements, and modules; view audit information. |
+| Super Admin | Full staff administration: create staff accounts; manage programmes, certificates, admission requirements, and modules; review applications; perform admissions and registry actions; view audit information; export data; and perform reasoned overrides. |
 | Admissions Officer | Verify first-time fee receipts and academic certificates; review applications; accept or reject applications and assign student numbers. |
 | Registry Officer | Enter module grades; set re-registration clearance; verify SRC receipts; approve semester registrations; record internship grades. |
 | Registrar | Review records, perform reasoned manual overrides, and export data. |
 | Student | Manage their own profile and application, submit registration documents, register for semesters, and view their own results and status. |
 
-The Super Admin creates other staff accounts from **Admin > Accounts**. The seed creates only the Super Admin account. Modules are added by an administrator in Module Management; the module catalogue starts empty. Module removal is a soft delete to preserve historical records.
+The Super Admin creates other staff accounts from **Admin > Accounts**. The seed creates only the Super Admin account. The Super Admin adds modules in Module Management and assigns each module to a programme and scheduled semester, with credits, classification, and prerequisites. Existing modules can be reassigned there; server validation checks semester bounds and keeps prerequisites within the assigned programme. The module catalogue starts empty, and removal is a soft delete to preserve historical records.
 
 ### Help assistant
 

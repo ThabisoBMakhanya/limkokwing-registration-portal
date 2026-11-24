@@ -16,6 +16,21 @@ function wrap(fn) {
   return (req, res, next) => fn(req, res).catch(next);
 }
 
+async function validateModulePrerequisites(ids, programmeId, moduleId = null) {
+  if (!Array.isArray(ids)) return 'Prerequisites must be a list of module IDs';
+  for (const rawId of new Set(ids.map(Number))) {
+    if (!Number.isInteger(rawId) || rawId < 1 || rawId === Number(moduleId)) {
+      return 'Each prerequisite must be a different valid module';
+    }
+    const prerequisite = await db.one('SELECT id, programme_id, is_active FROM modules WHERE id = $1', [rawId]);
+    if (!prerequisite || !prerequisite.is_active) return `Prerequisite module ${rawId} does not exist or is inactive`;
+    if (Number(prerequisite.programme_id) !== Number(programmeId)) {
+      return 'Prerequisite modules must belong to the same programme';
+    }
+  }
+  return null;
+}
+
 // ============ DASHBOARD ============
 router.get('/dashboard', wrap(async (req, res) => {
   const counts = {};
@@ -178,19 +193,25 @@ router.post('/modules', requireRole('super_admin'), wrap(async (req, res) => {
   if (!credits || !classification || !semester_number || !programme_id) {
     return res.status(400).json({ error: 'credits, classification, semester_number and programme_id are required' });
   }
+  const creditsValue = Number(credits), semesterValue = Number(semester_number), programmeId = Number(programme_id);
+  if (!Number.isInteger(creditsValue) || creditsValue < 1 || !Number.isInteger(semesterValue) || semesterValue < 1 || !Number.isInteger(programmeId) || programmeId < 1) {
+    return res.status(400).json({ error: 'Credits, semester, and programme must be valid positive numbers' });
+  }
   if (!['core', 'minor', 'elective'].includes(classification)) {
     return res.status(400).json({ error: 'classification must be core, minor or elective' });
   }
-  const programme = await db.one('SELECT * FROM programmes WHERE id = $1', [programme_id]);
+  const programme = await db.one('SELECT * FROM programmes WHERE id = $1', [programmeId]);
   if (!programme) return res.status(400).json({ error: 'Invalid programme' });
-  if (semester_number > programme.total_semesters) {
+  if (semesterValue > programme.total_semesters) {
     return res.status(400).json({ error: `Semester must be between 1 and ${programme.total_semesters}` });
   }
+  const prerequisitesError = await validateModulePrerequisites(prerequisites || [], programmeId);
+  if (prerequisitesError) return res.status(400).json({ error: prerequisitesError });
   try {
     const r = await db.run(
       `INSERT INTO modules (code, title, credits, classification, semester_number, programme_id)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [String(code).trim().toUpperCase(), title, credits, classification, semester_number, programme_id]
+      [String(code).trim().toUpperCase(), String(title).trim(), creditsValue, classification, semesterValue, programmeId]
     );
     const moduleId = r.lastInsertRowid;
     if (Array.isArray(prerequisites)) {
@@ -211,11 +232,32 @@ router.put('/modules/:id', requireRole('super_admin'), wrap(async (req, res) => 
   const m = await db.one('SELECT * FROM modules WHERE id = $1', [req.params.id]);
   if (!m) return res.status(404).json({ error: 'Module not found' });
   const b = req.body || {};
+  const programmeId = Number(b.programme_id ?? m.programme_id);
+  const semesterValue = Number(b.semester_number ?? m.semester_number);
+  const creditsValue = Number(b.credits ?? m.credits);
+  if (!Number.isInteger(programmeId) || programmeId < 1 || !Number.isInteger(semesterValue) || semesterValue < 1 || !Number.isInteger(creditsValue) || creditsValue < 1) {
+    return res.status(400).json({ error: 'Credits, semester, and programme must be valid positive numbers' });
+  }
+  const programme = await db.one('SELECT * FROM programmes WHERE id = $1', [programmeId]);
+  if (!programme) return res.status(400).json({ error: 'Invalid programme' });
+  if (semesterValue > programme.total_semesters) {
+    return res.status(400).json({ error: `Semester must be between 1 and ${programme.total_semesters}` });
+  }
+  if (b.classification !== undefined && !['core', 'minor', 'elective'].includes(b.classification)) {
+    return res.status(400).json({ error: 'classification must be core, minor or elective' });
+  }
+  if (programmeId !== Number(m.programme_id) && !Array.isArray(b.prerequisites)) {
+    return res.status(400).json({ error: 'Choose prerequisites again when assigning a module to a different programme' });
+  }
+  if (Array.isArray(b.prerequisites)) {
+    const prerequisitesError = await validateModulePrerequisites(b.prerequisites, programmeId, m.id);
+    if (prerequisitesError) return res.status(400).json({ error: prerequisitesError });
+  }
   await db.run(
-    `UPDATE modules SET code = $1, title = $2, credits = $3, classification = $4, semester_number = $5, is_active = $6
-     WHERE id = $7`,
-    [(b.code ?? m.code).toUpperCase(), b.title ?? m.title, b.credits ?? m.credits,
-      b.classification ?? m.classification, b.semester_number ?? m.semester_number,
+    `UPDATE modules SET code = $1, title = $2, credits = $3, classification = $4, semester_number = $5,
+      programme_id = $6, is_active = $7 WHERE id = $8`,
+    [String(b.code ?? m.code).trim().toUpperCase(), String(b.title ?? m.title).trim(), creditsValue,
+      b.classification ?? m.classification, semesterValue, programmeId,
       b.is_active !== undefined ? (b.is_active ? 1 : 0) : m.is_active, m.id]
   );
   if (Array.isArray(b.prerequisites)) {
@@ -252,7 +294,7 @@ router.get('/users', requireRole('super_admin'), wrap(async (_req, res) => {
     `SELECT u.id, u.full_name, u.email, u.phone, u.role, u.email_verified, u.is_active, u.created_at,
             s.student_number, s.programme_id, s.current_semester, s.status AS student_status
      FROM users u LEFT JOIN students s ON s.user_id = u.id
-     ${includeInactive ? '' : 'WHERE u.is_active = 1'}
+     WHERE u.role <> 'student' ${includeInactive ? '' : 'AND u.is_active = 1'}
      ORDER BY CASE u.role WHEN 'super_admin' THEN 0 WHEN 'admissions_officer' THEN 1
        WHEN 'registry_officer' THEN 2 WHEN 'registrar' THEN 3 ELSE 4 END, u.full_name`
   );
@@ -262,7 +304,7 @@ router.get('/users', requireRole('super_admin'), wrap(async (_req, res) => {
 router.post('/users', requireRole('super_admin'), wrap(async (req, res) => {
   const { full_name, email, password, role, phone } = req.body || {};
   if (!full_name || !email || !password || !role) return res.status(400).json({ error: 'full_name, email, password and role are required' });
-  if (!ADMIN_ROLES.includes(role) && role !== 'student') return res.status(400).json({ error: 'Invalid role' });
+  if (!ADMIN_ROLES.includes(role)) return res.status(400).json({ error: 'Only staff roles can be created here' });
   if (String(password).length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   try {
     const r = await db.run(
@@ -280,10 +322,17 @@ router.post('/users', requireRole('super_admin'), wrap(async (req, res) => {
 router.put('/users/:id', requireRole('super_admin'), wrap(async (req, res) => {
   const u = await db.one('SELECT * FROM users WHERE id = $1', [req.params.id]);
   if (!u) return res.status(404).json({ error: 'User not found' });
+  if (!ADMIN_ROLES.includes(u.role)) return res.status(404).json({ error: 'Staff account not found' });
   if (u.id === req.user.id && req.body.is_active === false) {
     return res.status(400).json({ error: 'You cannot disable your own account' });
   }
   const b = req.body || {};
+  if (b.role !== undefined && !ADMIN_ROLES.includes(b.role)) {
+    return res.status(400).json({ error: 'Account role must be a staff role' });
+  }
+  if (b.password && String(b.password).length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
   await db.run(
     `UPDATE users SET full_name = $1, phone = $2, role = $3, is_active = $4 WHERE id = $5`,
     [b.full_name ?? u.full_name, b.phone ?? u.phone, b.role ?? u.role,
@@ -350,7 +399,7 @@ router.get('/applications/:id', requireRole('admissions_officer', 'registrar', '
 }));
 
 // Verify / reject the registration fee receipt (email sent on rejection)
-router.post('/applications/:id/receipt', requireRole('admissions_officer'), wrap(async (req, res) => {
+router.post('/applications/:id/receipt', requireRole('admissions_officer', 'super_admin'), wrap(async (req, res) => {
   const { action, reason } = req.body || {};
   if (!['approved', 'rejected'].includes(action)) return res.status(400).json({ error: 'action must be approved or rejected' });
   const a = await db.one(
@@ -414,7 +463,7 @@ router.post('/applications/:id/certificate-verification', requireRole('admission
 }));
 
 // Verify certificate, accept/reject application, generate student number
-router.post('/applications/:id/decision', requireRole('admissions_officer'), wrap(async (req, res) => {
+router.post('/applications/:id/decision', requireRole('admissions_officer', 'super_admin'), wrap(async (req, res) => {
   const { action, reason, student_number } = req.body || {};
   if (!['accepted', 'rejected', 'under_review'].includes(action)) {
     return res.status(400).json({ error: 'action must be accepted, rejected or under_review' });
@@ -540,7 +589,7 @@ router.get('/students/:id/record', requireRole('registry_officer', 'registrar', 
 }));
 
 // Per-module grade entry; final exam < 40 => failed + flagged pending module
-router.post('/grades', requireRole('registry_officer'), wrap(async (req, res) => {
+router.post('/grades', requireRole('registry_officer', 'super_admin'), wrap(async (req, res) => {
   const { student_id, module_id, academic_term, ca_mark, exam_mark } = req.body || {};
   if (!student_id || !module_id || !academic_term || ca_mark == null || exam_mark == null) {
     return res.status(400).json({ error: 'student_id, module_id, academic_term, ca_mark and exam_mark are required' });
@@ -582,7 +631,7 @@ router.post('/grades', requireRole('registry_officer'), wrap(async (req, res) =>
 }));
 
 // Mark student as cleared for re-registration
-router.post('/clearance', requireRole('registry_officer'), wrap(async (req, res) => {
+router.post('/clearance', requireRole('registry_officer', 'super_admin'), wrap(async (req, res) => {
   const { student_id, academic_term, cleared, reason } = req.body || {};
   if (!student_id || !academic_term) return res.status(400).json({ error: 'student_id and academic_term are required' });
   if (cleared && !reason) return res.status(400).json({ error: 'A reason is required when clearing a student' });
@@ -649,7 +698,7 @@ router.get('/registrations/:id/details', requireRole('registry_officer', 'regist
 }));
 
 // Verify SRC receipt (approve/reject)
-router.post('/registrations/:id/src', requireRole('registry_officer'), wrap(async (req, res) => {
+router.post('/registrations/:id/src', requireRole('registry_officer', 'super_admin'), wrap(async (req, res) => {
   const { action, notes } = req.body || {};
   if (!['approved', 'rejected'].includes(action)) return res.status(400).json({ error: 'action must be approved or rejected' });
   if (action === 'rejected' && !notes) return res.status(400).json({ error: 'A rejection note is required' });
@@ -669,7 +718,7 @@ router.post('/registrations/:id/src', requireRole('registry_officer'), wrap(asyn
 }));
 
 // Approve registration â†’ create enrolments, advance semester
-router.post('/registrations/:id/approve', requireRole('registry_officer'), wrap(async (req, res) => {
+router.post('/registrations/:id/approve', requireRole('registry_officer', 'super_admin'), wrap(async (req, res) => {
   const reg = await db.one('SELECT * FROM semester_registrations WHERE id = $1', [req.params.id]);
   if (!reg) return res.status(404).json({ error: 'Registration not found' });
   if (reg.status === 'approved') return res.status(400).json({ error: 'Already approved' });
@@ -697,7 +746,7 @@ router.post('/registrations/:id/approve', requireRole('registry_officer'), wrap(
   res.json({ message: `Registration approved â€” ${moduleIds.length} module(s) enrolled` });
 }));
 
-router.post('/registrations/:id/reject', requireRole('registry_officer'), wrap(async (req, res) => {
+router.post('/registrations/:id/reject', requireRole('registry_officer', 'super_admin'), wrap(async (req, res) => {
   const { reason } = req.body || {};
   if (!reason) return res.status(400).json({ error: 'A rejection reason is required' });
   const reg = await db.one('SELECT * FROM semester_registrations WHERE id = $1', [req.params.id]);
@@ -721,7 +770,7 @@ router.get('/internships', requireRole('registry_officer', 'registrar', 'super_a
   res.json({ internships: rows });
 }));
 
-router.post('/internships/:id', requireRole('registry_officer'), wrap(async (req, res) => {
+router.post('/internships/:id', requireRole('registry_officer', 'super_admin'), wrap(async (req, res) => {
   const { action, notes, final_grade } = req.body || {};
   if (!['approved', 'rejected', 'graded'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
   const row = await db.one('SELECT * FROM internship_placements WHERE id = $1', [req.params.id]);
@@ -756,7 +805,7 @@ router.post('/internships/:id', requireRole('registry_officer'), wrap(async (req
 }));
 
 // ============ MANUAL OVERRIDES (Registrar â€” mandatory reason, permanently logged) ============
-router.post('/overrides', requireRole('registrar'), wrap(async (req, res) => {
+router.post('/overrides', requireRole('registrar', 'super_admin'), wrap(async (req, res) => {
   const { target_type, target_id, action, reason, new_value } = req.body || {};
   if (!target_type || !target_id || !action || !reason) {
     return res.status(400).json({ error: 'target_type, target_id, action and reason are required' });
